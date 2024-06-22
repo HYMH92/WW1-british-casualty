@@ -1,0 +1,249 @@
+from bs4 import BeautifulSoup
+import os
+import numpy as np
+
+MONTH_LIST =['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+YEARS_LIST =['1914', '1915', '1916', '1917', '1914.', '1915.', '1916.', '1917.']
+
+
+def read_file(file_ID):
+    """
+    Read the XML file and extract only the text from it.
+
+    Parameters:
+    file_ID (str): The name or ID of the XML file.
+
+    Returns:
+    list: A list of strings with the text content of the file.
+    """
+    
+    encodings = ['utf-8', 'ISO-8859-1', 'cp1252', 'latin1']
+    for encoding in encodings:
+        try:
+            with open(file_ID, encoding = encoding) as f:
+                data = f.read()
+            break
+        except UnicodeDecodeError:
+            #for debugging
+            print(f"Failed to decode with encoding: {encoding}")
+    else:
+        raise ValueError("Unable to read file with any of the attempted encodings")
+    
+    Bs_data = BeautifulSoup(data, "xml")
+    d_CONTENT = Bs_data.find_all('String')
+    words =[]
+    for s in d_CONTENT:
+        branch = str(s)
+        sentence = branch.split(" ")
+        word = sentence[1].split("=")
+        words.append(word[1].strip('"'))
+    
+    return words
+  
+
+def get_date(l_corrent_file):
+    """
+    Extract the date of the report.
+
+    Parameters:
+    l_corrent_file (list): The list with the content received from read_file function.
+
+    Returns:
+    tuple: (year, month, day) if all components are found, else (None, month, day).
+    """
+    year = month = day = None
+    
+    for w in l_corrent_file[:150]:
+        if w in MONTH_LIST:
+            month = l_corrent_file[l_corrent_file.index(w)]
+            day = l_corrent_file[l_corrent_file.index(w)+1]
+
+        elif w in YEARS_LIST:
+            year = str(w)
+            
+    #return the tuple of the date but without unrelevent characters, and also deal with the option of date not exist
+    if year and month and day:
+        return (year[0:4], month, day)
+    elif not year and month and day:
+        return (year, month, day)
+    else:
+        return (year, month, day)
+
+
+def get_index(l_corrent_file):
+    """
+    Detect the relevant part of the text, the death count part (not the wounded).
+
+    Parameters:
+    l_corrent_file (list): The list with the content we search for key words.
+
+    Returns:
+    list of tuples: Each tuple contains the start and end indices of the relevant content.
+    """
+
+    # Key words indicating the relevant part (e.g., death counts).
+    relevant = {'DIED', 'KILLED', 'DIED.', 'KILLED.', 'DROWNED', 'DROWNED.'}
+    # Key words indicating the start of a new section, hence the end of the relevant part.
+    n_relevant = {'WOUNDED', 'Previously', 'MISSING', 'GERMAN', 'WOUNDED.', 'MISSING.', 'GERMAN.', 'PRISONERS', 'OFFICERS.', 'OFFICERS'}
+    
+    starting_point = []
+    ending_point = []
+
+    # Collecting starting points of relevant parts
+    for i in range(len(l_corrent_file)):
+        if l_corrent_file[i] in relevant:
+            starting_point.append(i)
+
+    # Collecting ending points of relevant parts
+        elif l_corrent_file[i] in n_relevant:
+            ending_point.append(i)
+
+    if not starting_point:
+        return []
+    elif not ending_point:
+        return [(starting_point[0], len(l_corrent_file))]
+
+    # Otherwise, create tuples of start and end points
+    L = []
+    x = 0
+    for i in starting_point:
+        if i < x:
+            continue
+        else:
+            for j in ending_point:
+                if i > j:
+                    continue
+                else:
+                    L.append((i, j))
+                    x = j
+                    break
+    return L
+
+
+def relevant_text(l_corrent_file, relevant_range):
+    """
+    Extract the relevant part of the text.
+
+    Parameters:
+    l_corrent_file (list): The list of the current file.
+    relevant_range (list): List of tuples containing the start and end points of the relevant parts of the text.
+
+    Returns:
+    list: List of lists with the relevant part of the text.
+    """
+    L = []
+    for t in relevant_range:
+        L.append(l_corrent_file[t[0]:t[1]])
+    return L
+
+
+def extract_soldier_details(soldier_list):
+    """
+    Extract soldier details from the relevant part of the text.
+
+    Parameters:
+    soldier_list (list): The relevant part of the text.
+
+    Returns:
+    list: List of lists with the relevant information. Each list is a soldier's details like this: [NAME, PRIVATE_NUMBER, CITY_OF_ORIGIN].
+    """
+    soldiers = []
+    i = 0
+    while i < len(soldier_list):
+        details = []
+        
+
+        # Extract name and private number if present
+        if i + 1 < len(soldier_list) and any(chr.isdigit() for chr in soldier_list[i + 1]): 
+            if "—" in soldier_list[i]:
+                details.append(soldier_list[i][soldier_list[i].find("—") + 1:].replace(",", " "))
+            elif "-" in soldier_list[i]:
+                details.append(soldier_list[i][soldier_list[i].find("-") + 1:].replace(",", " "))
+            elif "." in soldier_list[i]:
+                details.append(soldier_list[i][soldier_list[i].find(".") + 1:].replace(",", " "))
+            else:
+                details.append(soldier_list[i])  # Name
+            details.append(soldier_list[i + 1])  # Private number
+            i += 2
+        else:
+            i += 1
+            continue
+        
+
+        # Ignore initials
+        while i < len(soldier_list) and (soldier_list[i].isalpha() or soldier_list[i] in {'R.', 'T.', 'M.', 'F.', 'A.', 'Act.', 'Act.-Bdr.', 'G.', 'Gnr.', 'H.', 'W.', 'K.', 'V.', 'D.', 'Dvr.', 'Drmr.', 'E.', 'L.', 'Lt.' , 'L.-Sjt.', 'L.-Cpl.', 'Cpl.', 'C.', 'Co.-Sjt.-Maj.', 'P.', 'J.', 'j.', 'J-', 'B.', 'Bdr.', 'N.', 'N’.', 'W.', 'W-.', 'Whir.', 'F.', 'S.', 'Sjt.', 'Spr.', 'Sec.', 'I.', '.', '\'"J.\'', '1).', ';', '0', '■', 'CS*'}):
+            i += 1
+            
+
+        # Extract city of origin  #why the replace doesnot work? I need to find a way to get rid of the comma
+        if i < len(soldier_list) and soldier_list[i].startswith("("):
+            if ")" in soldier_list[i]:
+                details.append(soldier_list[i][:-1])
+                i += 1
+            elif i + 1 < len(soldier_list) and ")" in soldier_list[i + 1]:
+                details.append((soldier_list[i].replace("-","") + soldier_list[i + 1][:-1]).replace(","," ").replace("-",""))
+                i += 2
+            elif i + 2 < len(soldier_list) and ")" in soldier_list[i + 2]:
+                details.append((soldier_list[i].replace("-","") + soldier_list[i + 1].replace("-","") + soldier_list[i + 2][:-1]).replace(","," ").replace("-",""))
+                i += 3        
+            elif i + 3 < len(soldier_list) and ")" in soldier_list[i + 3]:
+                details.append((soldier_list[i].replace("-","") + soldier_list[i + 1].replace("-","") + soldier_list[i + 2].replace("-","") + soldier_list[i + 3][:-1]).replace(","," ").replace("-",""))
+                i += 4
+            elif "(" in soldier_list[i]:
+                details.append(soldier_list[i].replace(",",""))  # There is only closing parentesis
+                i+=1
+            else:
+                details.append(soldier_list[i].replace(",",""))  # There is no closing parentesis
+                i+=1
+
+        else:
+            details.append('')  # Empty city of origin
+            i+=1
+
+        soldiers.append(details)
+    
+    return soldiers
+
+
+def get_directory(path):
+    """
+    Create a list of all the files we want the main function to run on.
+
+    Parameters:
+    path (str): The directory path containing the files.
+
+    Returns:
+    list: A list of file names in the given directory.
+    """
+
+    return [os.path.join(path, file) for file in os.listdir(path) if os.path.isfile(os.path.join(path, file))]
+
+
+#all you need to do is to put here the path to the folder with all the XML files and then run
+path = r"XML_directory_path"
+
+def main():
+    list_of_files = get_directory(path)
+    
+    for f in list_of_files:
+        l_corrent_file = read_file(f.replace("\\\\", "\\"))  #read the file
+        date_list = list(get_date(l_corrent_file))  #date of the event
+    
+        relevant_range = get_index(l_corrent_file)  #relevant index of text for us
+        soldiers_list = relevant_text(l_corrent_file, relevant_range)  #relevant text according to the indexes (list of lists)
+        soldier_table = []
+
+        for s in soldiers_list:  #run over the list of relevant text
+            soldier_details = extract_soldier_details(s)   #extract details of every soldier
+
+            for soldier in soldier_details:   # adding them to the table
+                soldier_table.append(date_list + soldier)
+
+        # Use numpy.savetxt() method to save the list as a CSV file
+        np.savetxt(f[:-4] + ".csv", 
+               soldier_table,
+               delimiter =", ",  # Set the delimiter as a comma followed by a space
+               fmt ='% s')  # Set the format of the data as string
+
+if __name__== '__main__':
+    main()
