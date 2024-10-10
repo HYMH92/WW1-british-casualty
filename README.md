@@ -54,3 +54,7 @@ The project involves the following steps:
 this jupiter note show briefly how the Details Extraction Tool can be used for real results and further investigation.
 executed by the partial resolts.scv file.
 if download and run it locally, the graphs also be available
+
+
+
+![צילום מסך 2024-10-11 003235](https://github.com/user-attachments/assets/d386b745-5ecf-4e4c-bd76-a5aef1688aca)
