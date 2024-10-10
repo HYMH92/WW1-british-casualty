@@ -21,6 +21,7 @@ The project involves the following steps:
 - Lists of months and years to help identify dates in the text.
 
 ## Functions
+
   'read_file':
 - Reads an XML file, tries multiple encodings, and uses BeautifulSoup to extract text content.
 
